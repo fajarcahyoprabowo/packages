@@ -91,8 +91,10 @@ class OpenContainer<T extends Object?> extends StatefulWidget {
     ),
     this.openShape = const RoundedRectangleBorder(),
     this.onClosed,
+    this.beforeOpen,
     required this.closedBuilder,
     required this.openBuilder,
+    this.openTransition,
     this.tappable = true,
     this.transitionDuration = const Duration(milliseconds: 300),
     this.transitionType = ContainerTransitionType.fade,
@@ -200,6 +202,12 @@ class OpenContainer<T extends Object?> extends StatefulWidget {
   /// `null` will be returned by default.
   final ClosedCallback<T?>? onClosed;
 
+  /// Called before container was popped.
+  ///
+  /// WARNING !!!
+  /// Calling this parameter can cause the emergence of the container to be delayed.
+  final Future<T> Function()? beforeOpen;
+
   /// Called to obtain the child for the container in the closed state.
   ///
   /// The [Widget] returned by this builder is faded out when the container
@@ -219,6 +227,16 @@ class OpenContainer<T extends Object?> extends StatefulWidget {
   /// The `action` callback provided to the builder can be called to close the
   /// container.
   final OpenContainerBuilder<T> openBuilder;
+
+  /// Invoked to change the appearance at the time of transition between widgets.
+  ///
+  /// The [Widget] returned by this builder is faded in when the container
+  /// opens and at the same time the widget returned by [closedBuilder] is
+  /// faded out while the container grows to fill the surrounding [Navigator].
+  ///
+  /// The `action` callback provided to the builder can be called to close the
+  /// container.
+  final OpenContainerBuilder<T>? openTransition;
 
   /// Whether the entire closed container can be tapped to open it.
   ///
@@ -278,6 +296,10 @@ class _OpenContainerState<T> extends State<OpenContainer<T?>> {
   final GlobalKey _closedBuilderKey = GlobalKey();
 
   Future<void> openContainer() async {
+    if (widget.beforeOpen != null) {
+      await widget.beforeOpen!();
+    }
+
     final Color middleColor =
         widget.middleColor ?? Theme.of(context).canvasColor;
     final T? data = await Navigator.of(
@@ -293,6 +315,7 @@ class _OpenContainerState<T> extends State<OpenContainer<T?>> {
       openShape: widget.openShape,
       closedBuilder: widget.closedBuilder,
       openBuilder: widget.openBuilder,
+      openTransition: widget.openTransition,
       hideableKey: _hideableKey,
       closedBuilderKey: _closedBuilderKey,
       transitionDuration: widget.transitionDuration,
@@ -407,13 +430,14 @@ class _OpenContainerRoute<T> extends ModalRoute<T> {
     required this.openShape,
     required this.closedBuilder,
     required this.openBuilder,
+    required this.openTransition,
     required this.hideableKey,
     required this.closedBuilderKey,
     required this.transitionDuration,
     required this.transitionType,
     required this.useRootNavigator,
     required RouteSettings? routeSettings,
-  })  : _elevationTween = Tween<double>(
+  })   : _elevationTween = Tween<double>(
           begin: closedElevation,
           end: openElevation,
         ),
@@ -542,6 +566,7 @@ class _OpenContainerRoute<T> extends ModalRoute<T> {
   final ShapeBorder openShape;
   final CloseContainerBuilder closedBuilder;
   final OpenContainerBuilder<T> openBuilder;
+  final OpenContainerBuilder<T>? openTransition;
 
   // See [_OpenContainerState._hideableKey].
   final GlobalKey<_HideableState> hideableKey;
@@ -649,7 +674,7 @@ class _OpenContainerRoute<T> extends ModalRoute<T> {
     final RenderBox navigator = Navigator.of(
       navigatorContext,
       rootNavigator: useRootNavigator,
-    ).context.findRenderObject()! as RenderBox;
+    ).context.findRenderObject() as RenderBox;
     final Size navSize = _getSize(navigator);
     _rectTween.end = Offset.zero & navSize;
 
@@ -680,7 +705,7 @@ class _OpenContainerRoute<T> extends ModalRoute<T> {
     assert(key.currentContext != null);
     assert(ancestor.hasSize);
     final RenderBox render =
-        key.currentContext!.findRenderObject()! as RenderBox;
+        key.currentContext!.findRenderObject() as RenderBox;
     assert(render.hasSize);
     return MatrixUtils.transformRect(
       render.getTransformTo(ancestor),
@@ -846,7 +871,11 @@ class _OpenContainerRoute<T> extends ModalRoute<T> {
                                 child: Builder(
                                   key: _openBuilderKey,
                                   builder: (BuildContext context) {
-                                    return openBuilder(context, closeContainer);
+                                    if (openTransition != null) {
+                                      return openTransition!(context, closeContainer);
+                                    } else {
+                                      return openBuilder(context, closeContainer);
+                                    }
                                   },
                                 ),
                               ),
